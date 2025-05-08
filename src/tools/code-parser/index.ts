@@ -1,6 +1,6 @@
 import { SearchResult, FileSearchResult } from "../../types/search-files.js";
 import fs from "fs";
-import Parser, { Query, SyntaxNode } from 'tree-sitter';
+import Parser, { Query, SyntaxNode, QueryCapture } from 'tree-sitter';
 import { javaQuery, typescriptQuery, javascriptQuery, pythonQuery } from './queries/index.js';
 import { getLanguage } from './language.js';
 import { isDefinitionNotCall } from './definition-types.js';
@@ -60,15 +60,28 @@ export const findDefinitions = async (filePath: string, fileContent: string): Pr
     const results: SearchResult[] = [];
     const captures = query.captures(tree.rootNode);
 
-    // 添加调试日志
-    console.log('=== Debug Info ===');
-    console.log('File:', filePath);
-    console.log('Total captures:', captures.length);
-  console.log(captures)
+    // 用于优先处理definition节点而非name.definition节点的映射
+    const definitionCapturesByRange: Map<string, QueryCapture[]> = new Map();
+
+    // 按位置分组捕获结果
+    for (const capture of captures) {
+      const range = `${capture.node.startPosition.row}-${capture.node.startPosition.column}`;
+      if (!definitionCapturesByRange.has(range)) {
+        definitionCapturesByRange.set(range, []);
+      }
+      definitionCapturesByRange.get(range)!.push(capture);
+    }
 
     const processedNodes = new Set<string>();
 
-    for (const capture of captures) {
+    // 对所有捕获进行处理
+    for (const capturesAtRange of definitionCapturesByRange.values()) {
+      // 优先处理definition.类型的捕获，如果没有再处理name.definition.类型的捕获
+      const definitionCapture = capturesAtRange.find(c => c.name.startsWith('definition.'));
+      const capture = definitionCapture || capturesAtRange.find(c => c.name.startsWith('name.definition.'));
+
+      if (!capture) continue;
+
       // 防止重复处理同一个节点
       const nodeKey = `${capture.node.startIndex}-${capture.node.endIndex}`;
       if (processedNodes.has(nodeKey)) continue;
@@ -150,8 +163,18 @@ export const findDefinitions = async (filePath: string, fileContent: string): Pr
           return def.match === exactSearchTerm && isDefinitionNotCall(def.definitionType);
         });
 
+        // 对于每个匹配的标识符，只保留代码最长的定义
+        const uniqueMatches = new Map<string, SearchResult>();
+        for (const match of exactMatches) {
+          const key = `${match.filePath}-${match.match}`;
+          if (!uniqueMatches.has(key) ||
+              uniqueMatches.get(key)!.definitionCode.length < match.definitionCode.length) {
+            uniqueMatches.set(key, match);
+          }
+        }
+
         // 将过滤后的定义结果添加到结果中
-        results.push(...exactMatches);
+        results.push(...uniqueMatches.values());
       }
     }
 

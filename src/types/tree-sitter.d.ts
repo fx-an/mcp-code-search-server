@@ -9,6 +9,11 @@ declare module 'tree-sitter' {
     text: string;
     startPosition: Point;
     endPosition: Point;
+    startIndex: number;
+    endIndex: number;
+    namedChildCount: number;
+    namedChild(index: number): SyntaxNode | null;
+    firstChild: SyntaxNode | null;
   }
 
   export interface QueryCapture {
