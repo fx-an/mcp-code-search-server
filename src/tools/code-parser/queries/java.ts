@@ -6,6 +6,8 @@ Java 查询：
 - enum declarations
 - constructor declarations
 - field declarations
+- method parameters
+- variable declarations
 */
 export default `
 (class_declaration
@@ -29,4 +31,24 @@ export default `
 
 (annotation_type_declaration
   name: (identifier) @name.definition.annotation) @definition.annotation
+
+; 方法参数定义
+(formal_parameter
+  name: (identifier) @name.definition.parameter) @definition.parameter
+
+; 变量声明
+(local_variable_declaration
+  declarator: (variable_declarator
+    name: (identifier) @name.definition.variable)) @definition.variable
+
+; 对象属性赋值
+(assignment_expression
+  left: (field_access
+    field: (identifier) @name.definition.property)) @definition.property
+
+; 初始化器中的属性赋值
+(object_creation_expression
+  arguments: (argument_list
+    (field_access
+      field: (identifier) @name.definition.property))) @definition.property
 `

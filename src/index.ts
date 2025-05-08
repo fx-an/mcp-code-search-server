@@ -30,6 +30,6 @@ async function main() {
 
 searchFiles("ydl.init.ajax", "/Users/anfengxin/Project/ydpx2ydap/demo/00000000/scripts", "*.js").then(async res => {
   console.log(res)
-  const results = await enrichSearchResultsWithDefinitions(res);
+  const results = await enrichSearchResultsWithDefinitions(res, "ydl.init.ajax");
   console.log(results)
 })

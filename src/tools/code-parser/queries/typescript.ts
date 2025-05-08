@@ -7,6 +7,7 @@ TypeScript 查询：
 - module declarations
 - interface declarations
 - type declarations
+- object property definitions and assignments
 */
 export default `
 ; 函数声明
@@ -57,4 +58,50 @@ export default `
   (variable_declarator
     name: (identifier) @name.definition.function
     value: [(function_expression) (arrow_function)])) @definition.function
+
+; 函数参数定义 - 常规函数
+(formal_parameters
+  (identifier) @name.definition.parameter) @definition.parameter
+
+; 参数类型注解
+(required_parameter
+  name: (identifier) @name.definition.parameter) @definition.parameter
+
+; 可选参数类型注解
+(optional_parameter
+  name: (identifier) @name.definition.parameter) @definition.parameter
+
+; 对象属性定义 (在对象字面量中)
+(pair
+  key: (property_identifier) @name.definition.property
+  value: [(object) (function_expression) (arrow_function) (string) (number) (true) (false) (null) (undefined) (array) (member_expression) (identifier)]) @definition.property
+
+; 单层成员表达式赋值值 (obj.prop = value)
+(expression_statement
+  (assignment_expression
+    left: (member_expression 
+      object: (identifier)
+      property: (property_identifier) @name.definition.property)
+    right: [(object) (string) (number) (true) (false) (null) (undefined) (array) (member_expression) (identifier)])) @definition.property
+
+; 多层成员表达式赋值 (obj.sub.prop = value)
+(expression_statement
+  (assignment_expression
+    left: (member_expression
+      object: (member_expression)
+      property: (property_identifier) @name.definition.property)
+    right: [(object) (string) (number) (true) (false) (null) (undefined) (array) (member_expression) (identifier)])) @definition.property
+
+; 接口属性声明
+(property_signature
+  name: (property_identifier) @name.definition.property) @definition.property
+
+; 类属性声明
+(public_field_definition
+  name: (property_identifier) @name.definition.property) @definition.property
+
+; 变量定义
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @name.definition.variable)) @definition.variable
 `
