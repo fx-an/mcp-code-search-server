@@ -1,9 +1,9 @@
-import Parser from "tree-sitter";
+import * as TreeSitter from "tree-sitter";
 
 export type SupportedExtensions = '.ts' | '.js' | '.tsx' | '.jsx' | '.py' | '.java';
 
 export interface ParseResult {
-  tree: Parser.Tree | null;
+  tree: TreeSitter.Tree | null;
   error?: string;
 }
 
