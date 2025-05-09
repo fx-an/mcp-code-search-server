@@ -4,6 +4,7 @@ import Parser, { Query, SyntaxNode, QueryCapture } from 'tree-sitter';
 import { javaQuery, typescriptQuery, javascriptQuery, pythonQuery } from './queries/index.js';
 import { getLanguage } from './language.js';
 import { isDefinitionNotCall } from './definition-types.js';
+import { readFileWithEncoding } from "../search-files.js";
 
 // 获取对应语言的查询
 const getLanguageQuery = (filePath: string): string => {
@@ -20,7 +21,7 @@ const getLanguageQuery = (filePath: string): string => {
     case '.py':
       return pythonQuery;
     default:
-      console.log('Unsupported file extension:', ext);
+      console.error('Unsupported file extension:', ext);
       return '';
   }
 };
@@ -49,123 +50,197 @@ const findChildOfType = (node: SyntaxNode, type: string): SyntaxNode | null => {
 
 // 解析文件并查找定义
 export const findDefinitions = async (filePath: string, fileContent: string): Promise<SearchResult[]> => {
+  try {
+    // 检查文件内容中是否有编码问题
+    if (fileContent.includes('')) {
+      console.error(`文件 ${filePath} 包含编码问题，尝试转码...`);
+    }
+    
+    // 确定文件类型，检查是否支持
+    const ext = filePath.substring(filePath.lastIndexOf('.'));
+    if (!['.java', '.ts', '.tsx', '.js', '.jsx', '.py'].includes(ext)) {
+      console.error(`不支持的文件类型: ${ext}，跳过文件: ${filePath}`);
+      return [];
+    }
+    
     const language = await getLanguage(filePath);
+    if (!language) {
+      console.error(`未能加载语言支持: ${filePath}`);
+      return [];
+    }
+    
     const parser = new Parser();
     parser.setLanguage(language);
 
     const tree = parser.parse(fileContent);
     const queryString = getLanguageQuery(filePath);
-    const query = new Query(language, queryString);
+    
+    // 确保有可用的查询字符串
+    if (!queryString) {
+      console.error(`未找到 ${filePath} 的语言查询，跳过文件`);
+      return [];
+    }
+    
+    let query: Query;
+    try {
+      query = new Query(language, queryString);
+    } catch (error) {
+      console.error(`创建查询失败: ${filePath}，错误: ${error}`);
+      return [];
+    }
 
     const results: SearchResult[] = [];
-    const captures = query.captures(tree.rootNode);
+    
+    let captures: QueryCapture[];
+    try {
+      captures = query.captures(tree.rootNode);
+      console.error(`文件 ${filePath} 中找到 ${captures.length} 个捕获`);
+    } catch (error) {
+      console.error(`执行查询捕获失败: ${filePath}，错误: ${error}`);
+      return [];
+    }
 
     // 用于优先处理definition节点而非name.definition节点的映射
     const definitionCapturesByRange: Map<string, QueryCapture[]> = new Map();
 
     // 按位置分组捕获结果
     for (const capture of captures) {
-      const range = `${capture.node.startPosition.row}-${capture.node.startPosition.column}`;
-      if (!definitionCapturesByRange.has(range)) {
-        definitionCapturesByRange.set(range, []);
+      try {
+        const range = `${capture.node.startPosition.row}-${capture.node.startPosition.column}`;
+        if (!definitionCapturesByRange.has(range)) {
+          definitionCapturesByRange.set(range, []);
+        }
+        definitionCapturesByRange.get(range)!.push(capture);
+      } catch (error) {
+        console.error(`处理捕获时出错: ${error}`);
+        // 继续处理其他捕获
+        continue;
       }
-      definitionCapturesByRange.get(range)!.push(capture);
     }
 
     const processedNodes = new Set<string>();
 
     // 对所有捕获进行处理
     for (const capturesAtRange of definitionCapturesByRange.values()) {
-      // 优先处理definition.类型的捕获，如果没有再处理name.definition.类型的捕获
-      const definitionCapture = capturesAtRange.find(c => c.name.startsWith('definition.'));
-      const capture = definitionCapture || capturesAtRange.find(c => c.name.startsWith('name.definition.'));
+      try {
+        // 优先处理definition.类型的捕获，如果没有再处理name.definition.类型的捕获
+        const definitionCapture = capturesAtRange.find(c => c.name.startsWith('definition.'));
+        const capture = definitionCapture || capturesAtRange.find(c => c.name.startsWith('name.definition.'));
 
-      if (!capture) continue;
+        if (!capture) continue;
 
-      // 防止重复处理同一个节点
-      const nodeKey = `${capture.node.startIndex}-${capture.node.endIndex}`;
-      if (processedNodes.has(nodeKey)) continue;
-      processedNodes.add(nodeKey);
+        // 防止重复处理同一个节点
+        const nodeKey = `${capture.node.startIndex}-${capture.node.endIndex}`;
+        if (processedNodes.has(nodeKey)) continue;
+        processedNodes.add(nodeKey);
 
-      const node = capture.node;
-      let definitionType = '';
-      let definitionName = '';
+        const node = capture.node;
+        let definitionType = '';
+        let definitionName = '';
 
-      // 处理不同类型的捕获
-      if (capture.name.startsWith('name.definition.')) {
-        // 直接捕获到名称节点的情况
-        definitionType = capture.name.replace('name.definition.', '');
-        definitionName = node.text;
-      } else if (capture.name.startsWith('definition.')) {
-        // 捕获到定义节点的情况
-        definitionType = capture.name.replace('definition.', '');
+        // 处理不同类型的捕获
+        if (capture.name.startsWith('name.definition.')) {
+          // 直接捕获到名称节点的情况
+          definitionType = capture.name.replace('name.definition.', '');
+          definitionName = node.text;
+        } else if (capture.name.startsWith('definition.')) {
+          // 捕获到定义节点的情况
+          definitionType = capture.name.replace('definition.', '');
 
-        // 成员函数定义的情况
-        if (definitionType === 'member_function') {
-          // 获取赋值表达式的左侧
-          const assignExpr = findChildOfType(node, 'assignment_expression');
-          if (assignExpr) {
-            const leftExpr = assignExpr.firstChild;
-            if (leftExpr && leftExpr.type === 'member_expression') {
-              definitionName = leftExpr.text;
+          // 成员函数定义的情况
+          if (definitionType === 'member_function') {
+            // 获取赋值表达式的左侧
+            const assignExpr = findChildOfType(node, 'assignment_expression');
+            if (assignExpr) {
+              const leftExpr = assignExpr.firstChild;
+              if (leftExpr && leftExpr.type === 'member_expression') {
+                definitionName = leftExpr.text;
+              }
             }
+          } else {
+            // 其他定义类型
+            definitionName = findNameInChildren(node, [
+              'identifier', 'property_identifier', 'type_identifier'
+            ]);
           }
-        } else {
-          // 其他定义类型
-          definitionName = findNameInChildren(node, [
-            'identifier', 'property_identifier', 'type_identifier'
-          ]);
         }
-      }
 
-      // 跳过没有找到名称或者类型的定义
-      if (!definitionName || !definitionType) {
+        // 跳过没有找到名称或者类型的定义
+        if (!definitionName || !definitionType) {
+          continue;
+        }
+
+        // 获取完整的定义代码
+        try {
+          const definitionCode = fileContent.substring(node.startIndex, node.endIndex);
+
+          // 最终结果
+          results.push({
+            filePath,
+            line: node.startPosition.row + 1,
+            column: node.startPosition.column + 1,
+            match: definitionName,
+            definitionType,
+            definitionCode
+          });
+        } catch (error) {
+          console.error(`提取定义代码时出错: ${error}`);
+          continue;
+        }
+      } catch (error) {
+        console.error(`处理捕获范围时出错: ${error}`);
         continue;
       }
-
-      // 获取完整的定义代码
-      const definitionCode = fileContent.substring(node.startIndex, node.endIndex);
-
-      // 最终结果
-      results.push({
-        filePath,
-        line: node.startPosition.row + 1,
-        column: node.startPosition.column + 1,
-        match: definitionName,
-        definitionType,
-        definitionCode
-      });
     }
 
     return results;
-  };
+  } catch (error) {
+    console.error(`解析文件 ${filePath} 时出错:`, error);
+    return [];
+  }
+};
 
-  // 将文件搜索结果转换为带定义的结果
-  export const enrichSearchResultsWithDefinitions = async (
-    searchResults: FileSearchResult[],
-    searchQuery: string = ''
-  ): Promise<SearchResult[]> => {
-    const results: SearchResult[] = [];
-    const processedFiles = new Set<string>();
+// 将文件搜索结果转换为带定义的结果
+export const enrichSearchResultsWithDefinitions = async (
+  searchResults: FileSearchResult[],
+  searchQuery: string = ''
+): Promise<SearchResult[]> => {
+  const results: SearchResult[] = [];
+  const processedFiles = new Set<string>();
 
-    // 准备搜索关键词，用于精确匹配
-    const exactSearchTerm = searchQuery.trim();
+  // 准备搜索关键词，用于精确匹配
+  const exactSearchTerm = searchQuery.trim();
+  console.error(`搜索关键词: '${exactSearchTerm}'`);
 
-    for (const result of searchResults) {
-      if (!processedFiles.has(result.filePath)) {
-        const fileContent = await fs.promises.readFile(result.filePath, 'utf-8');
+  for (const result of searchResults) {
+    if (!processedFiles.has(result.filePath)) {
+      try {
+        console.error(`处理文件: ${result.filePath}`);
+        // 使用自动编码检测读取文件
+        const fileContent = await readFileWithEncoding(result.filePath);
         const definitions = await findDefinitions(result.filePath, fileContent);
         processedFiles.add(result.filePath);
-
-        // 精确匹配搜索词并且只包含定义而不是调用
-        const exactMatches = definitions.filter(def => {
-          // 确保是完全匹配而不是包含关系，并且是定义而不是调用
-          return def.match === exactSearchTerm && isDefinitionNotCall(def.definitionType);
+        
+        // 使用精确匹配：完全匹配搜索词并区分大小写
+        const matchedDefinitions = definitions.filter(def => {
+          // 如果搜索词为空，则返回所有定义
+          if (!exactSearchTerm) return isDefinitionNotCall(def.definitionType);
+          
+          // 精确匹配：搜索词与定义名称完全相同，保留大小写敏感性
+          const isMatched = def.match === exactSearchTerm;
+          const isDefinition = isDefinitionNotCall(def.definitionType);
+          
+          // 匹配到时记录日志
+          if (isMatched && isDefinition) {
+            console.error(`匹配到定义: ${def.match}, 类型: ${def.definitionType}`);
+          }
+          
+          return isMatched && isDefinition;
         });
 
         // 对于每个匹配的标识符，只保留代码最长的定义
         const uniqueMatches = new Map<string, SearchResult>();
-        for (const match of exactMatches) {
+        for (const match of matchedDefinitions) {
           const key = `${match.filePath}-${match.match}`;
           if (!uniqueMatches.has(key) ||
               uniqueMatches.get(key)!.definitionCode.length < match.definitionCode.length) {
@@ -175,8 +250,12 @@ export const findDefinitions = async (filePath: string, fileContent: string): Pr
 
         // 将过滤后的定义结果添加到结果中
         results.push(...uniqueMatches.values());
+      } catch (error) {
+        console.error(`处理文件 ${result.filePath} 时出错:`, error);
       }
     }
+  }
 
-    return results;
-  };
+  console.error(`最终结果数量: ${results.length}`);
+  return results;
+};
