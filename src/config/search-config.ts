@@ -10,7 +10,17 @@ export const searchConfig = {
     "temp",
     "logs",
     ".vscode",
-    ".idea"
+    ".idea",
+    // Java相关
+    "target",
+    ".gradle",
+    "out",
+    // Python相关
+    "__pycache__",
+    "venv",
+    ".pytest_cache",
+    ".ipynb_checkpoints",
+    "*.egg-info"
   ],
   
   // 默认要忽略的文件类型
@@ -18,6 +28,12 @@ export const searchConfig = {
     "*.log",
     "*.tmp",
     "*.temp",
-    "*.bak"
+    "*.bak",
+    // Python相关
+    "*.pyc",
+    "*.pyo",
+    // Java相关
+    "*.class",
+    "*.jar"
   ]
 }; 
