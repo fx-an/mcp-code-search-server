@@ -5,7 +5,7 @@ import { registerTools } from "./tools/register.js";
 // Create server instance
 const server = new McpServer({
   name: "mcp-code-search-server",
-  version: "1.0.0",
+  version: "0.0.1",
   capabilities: {
     resources: {},
     tools: {},
