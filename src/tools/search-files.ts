@@ -101,13 +101,13 @@ export const searchFiles = async (
 const searchFilesRegister = (server: McpServer) => {
   server.tool(
     "search-files",
-    "Search for files in the repository",
+    "在指定目录中搜索代码标识符并返回其完整定义。此工具帮助查找变量、函数、类等定义的具体实现代码，而不仅是引用位置。通过获取完整的代码定义及其上下文，有助于理解代码的内部逻辑、数据流和依赖关系，从而更好地分析和解释代码功能。",
     {
-      query: z.string().describe("The query to search for"),
-      cwd: z.string().describe("The current working directory"),
-      filePattern: z.string().optional().describe("The file pattern to search for"),
-      excludePatterns: z.array(z.string()).optional().describe("The patterns to exclude from the search"),
-      excludeDirs: z.array(z.string()).optional().describe("The directories to exclude from the search"),
+      query: z.string().describe("要搜索的代码标识符（如变量名、函数名、类名等）"),
+      cwd: z.string().describe("要搜索的目录路径。此目录将被递归搜索。"),
+      filePattern: z.string().optional().describe("用于筛选文件的glob模式（例如：'*.ts'表示只搜索TypeScript文件）。如果不提供，将搜索所有文件。"),
+      excludePatterns: z.array(z.string()).optional().describe("要从搜索中排除的文件模式数组。这些模式将与默认排除模式合并。"),
+      excludeDirs: z.array(z.string()).optional().describe("要从搜索中排除的目录数组。这些目录将与默认排除目录合并。"),
     },
     async ({ query, cwd, filePattern, excludePatterns, excludeDirs }) => {
       const searchResults = await searchFiles(query, cwd, filePattern, excludePatterns, excludeDirs);
